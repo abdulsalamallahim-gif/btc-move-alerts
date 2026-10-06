@@ -254,14 +254,20 @@ async function checkLines(linesState, spot) {
       console.log(`${target.key}: armed`);
     }
     const st = linesState[target.key];
+    if (typeof st.seenUntil !== "number") {
+      st.seenUntil = Date.now();
+      changed = true;
+    }
     const dist = Math.abs(spot - target.valueNow);
     if (!st.armed && dist > REARM_DIST) {
       st.armed = true;
+      st.seenUntil = Date.now();
       changed = true;
-      console.log(`${target.key}: re-armed (price is $${fmt(dist)} away)`);
+      console.log(`${target.key}: re-armed (price is $${fmt(dist)} away; old candles ignored)`);
     }
     if (!st.armed) continue;
     const hit = candles.find((c) => {
+      if (c.t <= st.seenUntil) return false;
       const lv = target.valueAt(c.t + 150e3);
       return c.low <= lv + TOUCH_ZONE && c.high >= lv - TOUCH_ZONE;
     });
@@ -272,6 +278,7 @@ async function checkLines(linesState, spot) {
       `${above ? "🟢" : "🔴"} BTC touched ${target.label} (~$${fmt(lv)}); candle closed ${above ? "above" : "below"} it (low $${fmt(hit.low)}, high $${fmt(hit.high)}, now $${fmt(spot)}) (Kraken BTC/USD, ${hhmm(hit.t)}-${hhmm(hit.t + 300e3)} UTC).`
     );
     st.armed = false;
+    st.seenUntil = hit.t;
     changed = true;
     console.log(`${target.key}: touched (candle ${hhmm(hit.t)} UTC, target $${lv.toFixed(2)}, close ${hit.close})`);
   }
@@ -305,35 +312,41 @@ async function main() {
     try {
       const path = await fetchPath(anchorTime);
       const points = path.points.filter((p) => p.t >= anchorTime);
-      let alerts = 0;
+      const fromAnchor = anchor;
+      let steps = 0;
+      let lastPoint = null;
       for (const p of points) {
-        if (alerts >= 20) break;
-        if (p.high >= anchor + THRESHOLD) {
-          const level = anchor + THRESHOLD;
-          const win = `${hhmm(p.t)}-${hhmm(p.t + path.intervalMs)} UTC`;
-          await sendTelegram(
-            `🟢 BTC touched +$${THRESHOLD} from the last alert price: $${fmt(anchor)} -> $${fmt(level)} (high $${fmt(p.high)}, now $${fmt(spot)}) (${path.source} BTC/USD, ${win}).`
-          );
-          anchor = level;
-          anchorTime = p.t + path.intervalMs;
-          alerts++;
-          changed = true;
-          continue;
-        }
-        if (p.low <= anchor - THRESHOLD) {
-          const level = anchor - THRESHOLD;
-          const win = `${hhmm(p.t)}-${hhmm(p.t + path.intervalMs)} UTC`;
-          await sendTelegram(
-            `🔴 BTC touched -$${THRESHOLD} from the last alert price: $${fmt(anchor)} -> $${fmt(level)} (low $${fmt(p.low)}, now $${fmt(spot)}) (${path.source} BTC/USD, ${win}).`
-          );
-          anchor = level;
-          anchorTime = p.t + path.intervalMs;
-          alerts++;
-          changed = true;
+        let stepped = true;
+        while (stepped && steps < 20) {
+          stepped = false;
+          if (p.high >= anchor + THRESHOLD) {
+            anchor += THRESHOLD;
+            anchorTime = p.t + path.intervalMs;
+            lastPoint = p;
+            steps++;
+            stepped = true;
+            continue;
+          }
+          if (p.low <= anchor - THRESHOLD) {
+            anchor -= THRESHOLD;
+            anchorTime = p.t + path.intervalMs;
+            lastPoint = p;
+            steps++;
+            stepped = true;
+          }
         }
       }
-      if (alerts > 0) {
-        console.log(`move ALERT x${alerts}, new anchor $${anchor} (${path.source}, ${points.length} points scanned)`);
+      if (steps > 0 && anchor !== fromAnchor && lastPoint) {
+        const moved = anchor - fromAnchor;
+        const win = `${hhmm(lastPoint.t)}-${hhmm(lastPoint.t + path.intervalMs)} UTC`;
+        await sendTelegram(
+          `${moved > 0 ? "🟢" : "🔴"} BTC moved ${moved > 0 ? "+" : "-"}$${Math.abs(moved).toFixed(0)} from the last alert price: $${fmt(fromAnchor)} -> $${fmt(anchor)} (now $${fmt(spot)}) (${path.source} BTC/USD, ${win}).`
+        );
+        changed = true;
+        console.log(`move ALERT once (${steps} steps), $${fromAnchor} -> $${anchor} (${path.source}, ${points.length} points scanned)`);
+      } else if (steps > 0) {
+        changed = true;
+        console.log(`move round-trip (${steps} steps), anchor unchanged at $${anchor}; no text`);
       } else {
         console.log(`ok: no $${THRESHOLD} touch since ${new Date(anchorTime).toISOString()}; spot $${spot} vs anchor $${anchor} (${spotSource}, ${points.length} points scanned)`);
       }
