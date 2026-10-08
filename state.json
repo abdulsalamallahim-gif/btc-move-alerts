@@ -1,6 +1,6 @@
 {
-  "anchor": 82499.9,
-  "anchorTime": 1791468900000,
+  "anchor": 81499.9,
+  "anchorTime": 1791473100000,
   "signals": {
     "4h-50": 1791331200000,
     "4h-100": 1791360000000,
@@ -17,7 +17,7 @@
       "armed": true
     },
     "level:81844.53": {
-      "armed": true
+      "armed": false
     },
     "level:80801.65": {
       "armed": true
