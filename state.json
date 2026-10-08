@@ -1,6 +1,6 @@
 {
-  "anchor": 81499.9,
-  "anchorTime": 1791473100000,
+  "anchor": 80999.9,
+  "anchorTime": 1791474000000,
   "signals": {
     "4h-50": 1791331200000,
     "4h-100": 1791360000000,
@@ -29,7 +29,7 @@
       "armed": true
     },
     "trendline": {
-      "armed": true
+      "armed": false
     }
   }
 }
